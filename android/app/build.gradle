@@ -11,7 +11,7 @@ android {
     compileSdkVersion 26
     defaultConfig {
         if (buildAsApplication) {
-            applicationId "org.stjr.srb2"
+            applicationId "org.rphys.srb2"
         }
 
         minSdkVersion 14
@@ -43,6 +43,7 @@ android {
                             'srb2.pk3',
                             'zones.pk3',
                             'player.dta',
+                            'rphys.pk3',
                             'patch.pk3',
                             'music.dta']
                     ))
@@ -53,8 +54,8 @@ android {
             useBuildDate = false
         }
 
-        // Lactozilla: This formats the application package's name.
-        def srb2PackageName = "srb2-android"
+        // This generates the APK filename
+        def srb2PackageName = "srb2-rphys"
 
         // Game version string
         srb2PackageName += "-v" + (defaultConfig.versionName).replace(".", "")
@@ -121,7 +122,7 @@ android {
             variant.outputs.each { output ->
                 def outputFile = output.outputFile
                 if (outputFile != null && outputFile.name.endsWith(".aar")) {
-                    def fileName = "org.stjr.srb2.aar";
+                    def fileName = "org.rphys.srb2.aar";
                     output.outputFile = new File(outputFile.parent, fileName);
                 }
             }
