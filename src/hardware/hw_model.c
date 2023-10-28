@@ -193,9 +193,6 @@ model_t *LoadModel(const char *filename, int ztag)
 		return NULL;
 	}
 
-	model->mdlFilename = (char*)Z_Malloc(strlen(filename)+1, ztag, 0);
-	strcpy(model->mdlFilename, filename);
-
 	Optimize(model);
 	GeneratePolygonNormals(model, ztag);
 	LoadModelSprite2(model);
@@ -225,6 +222,7 @@ model_t *LoadModel(const char *filename, int ztag)
 	for (i = 0; i < model->numMeshes; i++)
 		model->meshes[i].originaluvs = model->meshes[i].uvs;
 
+	model->hasVBOs = false;
 	model->max_s = 1.0;
 	model->max_t = 1.0;
 	model->vbo_max_s = 1.0;
@@ -691,7 +689,7 @@ void GeneratePolygonNormals(model_t *model, int ztag)
 #if 0
 static void Reload(void)
 {
-/*	model_t *node;
+	model_t *node;
 	for (node = modelHead; node; node = node->next)
 	{
 		int i;
@@ -712,14 +710,14 @@ static void Reload(void)
 					CreateVBO(mesh, &mesh->tinyframes[j]);
 			}
 		}
-	}*/
+	}
 }
 #endif
 
 void DeleteVBOs(model_t *model)
 {
 	(void)model;
-/*	for (int i = 0; i < model->numMeshes; i++)
+	for (int i = 0; i < model->numMeshes; i++)
 	{
 		mesh_t *mesh = &model->meshes[i];
 
@@ -730,7 +728,7 @@ void DeleteVBOs(model_t *model)
 				mdlframe_t *frame = &mesh->frames[j];
 				if (!frame->vboID)
 					continue;
-				bglDeleteBuffers(1, &frame->vboID);
+				glDeleteBuffers(1, &frame->vboID);
 				frame->vboID = 0;
 			}
 		}
@@ -741,9 +739,9 @@ void DeleteVBOs(model_t *model)
 				tinyframe_t *frame = &mesh->tinyframes[j];
 				if (!frame->vboID)
 					continue;
-				bglDeleteBuffers(1, &frame->vboID);
+				glDeleteBuffers(1, &frame->vboID);
 				frame->vboID = 0;
 			}
 		}
-	}*/
+	}
 }

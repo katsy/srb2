@@ -2683,6 +2683,7 @@ static int mapheaderinfo_get(lua_State *L)
 	mapheader_t *header = *((mapheader_t **)luaL_checkudata(L, 1, META_MAPHEADER));
 	enum mapheaderinfo_e field = Lua_optoption(L, 2, -1, mapheaderinfo_fields_ref);
 	INT16 i;
+	UINT8 j = 0;
 
 	switch (field)
 	{
@@ -2829,7 +2830,6 @@ static int mapheaderinfo_get(lua_State *L)
 	{
 		// Read custom vars now
 		// (note: don't include the "LUA." in your lua scripts!)
-		UINT8 j = 0;
 		for (;j < header->numCustomOptions && !fastcmp(lua_tostring(L, 2), header->customopts[j].option); ++j);
 
 		if(j < header->numCustomOptions)

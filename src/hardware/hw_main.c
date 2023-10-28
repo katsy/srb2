@@ -171,12 +171,13 @@ boolean gl_init = false;
 boolean gl_maploaded = false;
 boolean gl_sessioncommandsadded = false;
 boolean gl_shadersavailable = true;
+boolean gl_powersoftwo = false;
 
 // ==========================================================================
 // Lighting
 // ==========================================================================
 
-static boolean HWR_UseShader(void)
+boolean HWR_UseShader(void)
 {
 	return (cv_glshaders.value && gl_shadersavailable);
 }
@@ -224,6 +225,11 @@ void HWR_Lighting(FSurfaceInfo *Surface, INT32 light_level, extracolormap_t *col
 		poly_color.s.red = (UINT8)red;
 		poly_color.s.green = (UINT8)green;
 		poly_color.s.blue = (UINT8)blue;
+
+#ifdef HAVE_GLES2
+		tint_color.rgba = GL_DEFAULTMIX;
+		fade_color.rgba = GL_DEFAULTFOG;
+#endif
 	}
 
 	// Clamp the light level, since it can sometimes go out of the 0-255 range from animations
@@ -3254,10 +3260,10 @@ static void HWR_Subsector(size_t num)
 		}
 	}
 
-// Hurder ici se passe les choses INT32�essantes!
+// Hurder ici se passe les choses INT32 essantes!
 // on vient de tracer le sol et le plafond
-// on trace �pr�ent d'abord les sprites et ensuite les murs
-// hurdler: faux: on ajoute seulement les sprites, le murs sont trac� d'abord
+// on trace  pr ent d'abord les sprites et ensuite les murs
+// hurdler: faux: on ajoute seulement les sprites, le murs sont trac  d'abord
 	if (line)
 	{
 		// draw sprites first, coz they are clipped to the solidsegs of
@@ -4833,6 +4839,13 @@ static int CompareDrawNodePlanes(const void *p1, const void *p2)
 	return ABS(sortnode[n2].plane->fixedheight - viewz) - ABS(sortnode[n1].plane->fixedheight - viewz);
 }
 
+static void HWR_ClearDrawNodes(void)
+{
+	numwalls = 0;
+	numplanes = 0;
+	numpolyplanes = 0;
+}
+
 //
 // HWR_CreateDrawNodes
 // Creates and sorts a list of drawnodes for the scene being rendered.
@@ -4949,9 +4962,7 @@ static void HWR_CreateDrawNodes(void)
 
 	PS_STOP_TIMING(ps_hw_nodedrawtime);
 
-	numwalls = 0;
-	numplanes = 0;
-	numpolyplanes = 0;
+	HWR_ClearDrawNodes();
 
 	// No mem leaks, please.
 	Z_Free(sortnode);
@@ -5873,7 +5884,7 @@ void HWR_BuildSkyDome(void)
 
 	gl_sky_t *sky = &gl_sky;
 	gl_skyvertex_t *vertex_p;
-	texture_t *texture = textures[texturetranslation[skytexture]];
+	texture_t *texture = textures[R_GetTextureNum(skytexture)];
 
 	sky->detail = 16;
 	col_count *= sky->detail;
@@ -5892,7 +5903,7 @@ void HWR_BuildSkyDome(void)
 	if (!sky->data)
 		sky->data = malloc(sky->vertex_count * sizeof(sky->data[0]));
 
-	sky->texture = texturetranslation[skytexture];
+	sky->texture = R_GetTextureNum(skytexture);
 	sky->width = texture->width;
 	sky->height = texture->height;
 
@@ -5945,8 +5956,9 @@ static void HWR_DrawSkyBackground(player_t *player)
 	if (cv_glskydome.value)
 	{
 		FTransform dometransform;
-		const float fpov = FIXED_TO_FLOAT(cv_fov.value+player->fovadd);
+		const float fpov = HWR_GetFOV(player);
 		postimg_t *type;
+		angle_t viewrollangle = R_GetLocalViewRollAngle(player);
 
 		if (splitscreen && player == &players[secondarydisplayplayer])
 			type = &postimgtype2;
@@ -5970,9 +5982,9 @@ static void HWR_DrawSkyBackground(player_t *player)
 		dometransform.scalez = 1;
 		dometransform.fovxangle = fpov; // Tails
 		dometransform.fovyangle = fpov; // Tails
-		if (player->viewrollangle != 0)
+		if (viewrollangle != 0)
 		{
-			fixed_t rol = AngleFixed(player->viewrollangle);
+			fixed_t rol = AngleFixed(viewrollangle);
 			dometransform.rollangle = FIXED_TO_FLOAT(rol);
 			dometransform.roll = true;
 			dometransform.rollx = 1.0f;
@@ -5980,9 +5992,9 @@ static void HWR_DrawSkyBackground(player_t *player)
 		}
 		dometransform.splitscreen = splitscreen;
 
-		HWR_GetTexture(texturetranslation[skytexture]);
+		HWR_GetTexture(R_GetTextureNum(skytexture));
 
-		if (gl_sky.texture != texturetranslation[skytexture])
+		if (gl_sky.texture != R_GetTextureNum(skytexture))
 		{
 			HWR_ClearSkyDome();
 			HWR_BuildSkyDome();
@@ -6000,24 +6012,33 @@ static void HWR_DrawSkyBackground(player_t *player)
 		float aspectratio;
 		float angleturn;
 
-		HWR_GetTexture(texturetranslation[skytexture]);
+		HWR_GetTexture(R_GetTextureNum(skytexture));
 		aspectratio = (float)vid.width/(float)vid.height;
-
-		//Hurdler: the sky is the only texture who need 4.0f instead of 1.0
-		//         because it's called just after clearing the screen
-		//         and thus, the near clipping plane is set to 3.99
-		// Sryder: Just use the near clipping plane value then
 
 		//  3--2
 		//  | /|
 		//  |/ |
 		//  0--1
+
+#ifdef HAVE_GLES2
+		v[0].x = v[3].x = -1.0f;
+		v[1].x = v[2].x =  1.0f;
+		v[0].y = v[1].y = -1.0f;
+		v[2].y = v[3].y =  1.0f;
+
+		v[0].z = v[1].z = v[2].z = v[3].z = 1.0f;
+#else
+		//Hurdler: the sky is the only texture who need 4.0f instead of 1.0
+		//         because it's called just after clearing the screen
+		//         and thus, the near clipping plane is set to 3.99
+		// Sryder: Just use the near clipping plane value then
 		v[0].x = v[3].x = -ZCLIP_PLANE-1;
 		v[1].x = v[2].x =  ZCLIP_PLANE+1;
 		v[0].y = v[1].y = -ZCLIP_PLANE-1;
 		v[2].y = v[3].y =  ZCLIP_PLANE+1;
 
 		v[0].z = v[1].z = v[2].z = v[3].z = ZCLIP_PLANE+1;
+#endif
 
 		// X
 
@@ -6027,7 +6048,7 @@ static void HWR_DrawSkyBackground(player_t *player)
 
 		angle = (dup_viewangle + gl_xtoviewangle[0]);
 
-		dimensionmultiply = ((float)textures[texturetranslation[skytexture]]->width/256.0f);
+		dimensionmultiply = ((float)textures[R_GetTextureNum(skytexture)]->width/256.0f);
 
 		v[0].s = v[3].s = (-1.0f * angle) / (((float)ANGLE_90-1.0f)*dimensionmultiply); // left
 		v[2].s = v[1].s = v[0].s + (1.0f/dimensionmultiply); // right (or left + 1.0f)
@@ -6035,7 +6056,7 @@ static void HWR_DrawSkyBackground(player_t *player)
 
 		// Y
 		angle = aimingangle;
-		dimensionmultiply = ((float)textures[texturetranslation[skytexture]]->height/(128.0f*aspectratio));
+		dimensionmultiply = ((float)textures[R_GetTextureNum(skytexture)]->height/(128.0f*aspectratio));
 
 		if (splitscreen)
 		{
@@ -6071,6 +6092,9 @@ static void HWR_DrawSkyBackground(player_t *player)
 			v[0].t = v[1].t -= ((float) angle / angleturn);
 		}
 
+#ifdef HAVE_GLES2
+		HWD.pfnSetTransform(NULL);
+#endif
 		HWD.pfnUnSetShader();
 		HWD.pfnDrawPolygon(NULL, v, 4, 0);
 	}
@@ -6138,6 +6162,27 @@ void HWR_SetViewSize(void)
 	HWD.pfnFlushScreenTextures();
 }
 
+float HWR_GetFOV(player_t *player)
+{
+	fixed_t pfov = cv_fov.value;
+	float fov;
+
+	if (player)
+		pfov += player->fovadd;
+
+	fov = FixedToFloat(pfov);
+
+#ifdef NATIVESCREENRES
+	if (cv_nativeres.value && cv_nativeresfov.value)
+	{
+		float resmul = ((float)vid.width / (float)vid.height);
+		fov = atan(tan(fov*M_PI/360)*(resmul*0.7))*360/M_PI;
+	}
+#endif
+
+	return fov;
+}
+
 // Set view aiming, for the sky dome, the skybox,
 // and the normal view, all with a single function.
 static void HWR_SetTransformAiming(FTransform *trans, player_t *player, boolean skybox)
@@ -6179,7 +6224,8 @@ static void HWR_SetShaderState(void)
 // ==========================================================================
 void HWR_RenderSkyboxView(INT32 viewnumber, player_t *player)
 {
-	const float fpov = FIXED_TO_FLOAT(cv_fov.value+player->fovadd);
+	const float fpov = HWR_GetFOV(player);
+	angle_t viewrollangle = R_GetLocalViewRollAngle(player);
 	postimg_t *type;
 
 	if (splitscreen && player == &players[secondarydisplayplayer])
@@ -6217,8 +6263,11 @@ void HWR_RenderSkyboxView(INT32 viewnumber, player_t *player)
 		gl_windowcentery += (vid.height/2);
 	}
 
-	// check for new console commands.
+	// Check for new console commands.
 	NetUpdate();
+
+	if (I_AppOnBackground())
+		return;
 
 	gl_viewx = FIXED_TO_FLOAT(dup_viewx);
 	gl_viewy = FIXED_TO_FLOAT(dup_viewy);
@@ -6250,9 +6299,9 @@ void HWR_RenderSkyboxView(INT32 viewnumber, player_t *player)
 
 	atransform.fovxangle = fpov; // Tails
 	atransform.fovyangle = fpov; // Tails
-	if (player->viewrollangle != 0)
+	if (viewrollangle != 0)
 	{
-		fixed_t rol = AngleFixed(player->viewrollangle);
+		fixed_t rol = AngleFixed(viewrollangle);
 		atransform.rollangle = FIXED_TO_FLOAT(rol);
 		atransform.roll = true;
 		atransform.rollx = 1.0f;
@@ -6278,7 +6327,7 @@ void HWR_RenderSkyboxView(INT32 viewnumber, player_t *player)
 #ifdef NEWCLIP
 	if (rendermode == render_opengl)
 	{
-		angle_t a1 = gld_FrustumAngle(gl_aimingangle);
+		angle_t a1 = gld_FrustumAngle(gl_aimingangle, player);
 		gld_clipper_Clear();
 		gld_clipper_SafeAddClipRange(viewangle + a1, viewangle - a1);
 #ifdef HAVE_SPHEREFRUSTRUM
@@ -6311,7 +6360,7 @@ void HWR_RenderSkyboxView(INT32 viewnumber, player_t *player)
 		viewangle = localaiming2;
 
 	// Handle stuff when you are looking farther up or down.
-	if ((gl_aimingangle || cv_fov.value+player->fovadd > 90*FRACUNIT))
+	if ((gl_aimingangle || HWR_GetFOV(player) > 90.0f))
 	{
 		dup_viewangle += ANGLE_90;
 		HWR_ClearClipSegs();
@@ -6337,6 +6386,12 @@ void HWR_RenderSkyboxView(INT32 viewnumber, player_t *player)
 
 	// Check for new console commands.
 	NetUpdate();
+
+	if (I_AppOnBackground())
+	{
+		HWR_ClearDrawNodes();
+		return;
+	}
 
 #ifdef ALAM_LIGHTING
 	//14/11/99: Hurdler: moved here because it doesn't work with
@@ -6364,6 +6419,9 @@ void HWR_RenderSkyboxView(INT32 viewnumber, player_t *player)
 	// Check for new console commands.
 	NetUpdate();
 
+	if (I_AppOnBackground())
+		return;
+
 	// added by Hurdler for correct splitscreen
 	// moved here by hurdler so it works with the new near clipping plane
 	HWD.pfnGClipRect(0, 0, vid.width, vid.height, NZCLIP_PLANE);
@@ -6374,7 +6432,8 @@ void HWR_RenderSkyboxView(INT32 viewnumber, player_t *player)
 // ==========================================================================
 void HWR_RenderPlayerView(INT32 viewnumber, player_t *player)
 {
-	const float fpov = FIXED_TO_FLOAT(cv_fov.value+player->fovadd);
+	const float fpov = HWR_GetFOV(player);
+	angle_t viewrollangle = R_GetLocalViewRollAngle(player);
 	postimg_t *type;
 
 	const boolean skybox = (skyboxmo[0] && cv_skybox.value); // True if there's a skybox object and skyboxes are on
@@ -6401,6 +6460,9 @@ void HWR_RenderPlayerView(INT32 viewnumber, player_t *player)
 	if (skybox && drawsky) // If there's a skybox and we should be drawing the sky, draw the skybox
 		HWR_RenderSkyboxView(viewnumber, player); // This is drawn before everything else so it is placed behind
 	PS_STOP_TIMING(ps_hw_skyboxtime);
+
+	if (I_AppOnBackground())
+		return;
 
 	{
 		// do we really need to save player (is it not the same)?
@@ -6433,8 +6495,11 @@ void HWR_RenderPlayerView(INT32 viewnumber, player_t *player)
 		gl_windowcentery += (vid.height/2);
 	}
 
-	// check for new console commands.
+	// Check for new console commands.
 	NetUpdate();
+
+	if (I_AppOnBackground())
+		return;
 
 	gl_viewx = FIXED_TO_FLOAT(dup_viewx);
 	gl_viewy = FIXED_TO_FLOAT(dup_viewy);
@@ -6466,9 +6531,9 @@ void HWR_RenderPlayerView(INT32 viewnumber, player_t *player)
 
 	atransform.fovxangle = fpov; // Tails
 	atransform.fovyangle = fpov; // Tails
-	if (player->viewrollangle != 0)
+	if (viewrollangle != 0)
 	{
-		fixed_t rol = AngleFixed(player->viewrollangle);
+		fixed_t rol = AngleFixed(viewrollangle);
 		atransform.rollangle = FIXED_TO_FLOAT(rol);
 		atransform.roll = true;
 		atransform.rollx = 1.0f;
@@ -6494,7 +6559,7 @@ void HWR_RenderPlayerView(INT32 viewnumber, player_t *player)
 #ifdef NEWCLIP
 	if (rendermode == render_opengl)
 	{
-		angle_t a1 = gld_FrustumAngle(gl_aimingangle);
+		angle_t a1 = gld_FrustumAngle(gl_aimingangle, player);
 		gld_clipper_Clear();
 		gld_clipper_SafeAddClipRange(viewangle + a1, viewangle - a1);
 #ifdef HAVE_SPHEREFRUSTRUM
@@ -6531,7 +6596,7 @@ void HWR_RenderPlayerView(INT32 viewnumber, player_t *player)
 		viewangle = localaiming2;
 
 	// Handle stuff when you are looking farther up or down.
-	if ((gl_aimingangle || cv_fov.value+player->fovadd > 90*FRACUNIT))
+	if ((gl_aimingangle || HWR_GetFOV(player) > 90.0f))
 	{
 		dup_viewangle += ANGLE_90;
 		HWR_ClearClipSegs();
@@ -6559,6 +6624,12 @@ void HWR_RenderPlayerView(INT32 viewnumber, player_t *player)
 
 	// Check for new console commands.
 	NetUpdate();
+
+	if (I_AppOnBackground())
+	{
+		HWR_ClearDrawNodes();
+		return;
+	}
 
 #ifdef ALAM_LIGHTING
 	//14/11/99: Hurdler: moved here because it doesn't work with
@@ -6596,9 +6667,15 @@ void HWR_RenderPlayerView(INT32 viewnumber, player_t *player)
 	// Check for new console commands.
 	NetUpdate();
 
+	if (I_AppOnBackground())
+		return;
+
 	// added by Hurdler for correct splitscreen
 	// moved here by hurdler so it works with the new near clipping plane
 	HWD.pfnGClipRect(0, 0, vid.width, vid.height, NZCLIP_PLANE);
+#ifdef HAVE_GLES2
+	HWD.pfnSetBlend(PF_Modulated|PF_Translucent|PF_NoDepthTest);
+#endif
 }
 
 void HWR_LoadLevel(void)
@@ -6625,11 +6702,14 @@ static CV_PossibleValue_t glshaders_cons_t[] = {{HWD_SHADEROPTION_OFF, "Off"}, {
 static CV_PossibleValue_t glmodelinterpolation_cons_t[] = {{0, "Off"}, {1, "Sometimes"}, {2, "Always"}, {0, NULL}};
 static CV_PossibleValue_t glfakecontrast_cons_t[] = {{0, "Off"}, {1, "On"}, {2, "Smooth"}, {0, NULL}};
 static CV_PossibleValue_t glshearing_cons_t[] = {{0, "Off"}, {1, "On"}, {2, "Third-person"}, {0, NULL}};
+CV_PossibleValue_t glrenderbufferdepth_cons_t[] = {{0, "Default"}, {1, "16 bits"}, {2, "24 bits"}, {3, "32 bits"}, {4, "Float"}, {0, NULL}};
 
+static void CV_glframebuffer_OnChange(void);
+static void CV_glrenderbufferdepth_OnChange(void);
 static void CV_glfiltermode_OnChange(void);
 static void CV_glanisotropic_OnChange(void);
 
-static CV_PossibleValue_t glfiltermode_cons_t[]= {{HWD_SET_TEXTUREFILTER_POINTSAMPLED, "Nearest"},
+static CV_PossibleValue_t glfiltermode_cons_t[] = {{HWD_SET_TEXTUREFILTER_POINTSAMPLED, "Nearest"},
 	{HWD_SET_TEXTUREFILTER_BILINEAR, "Bilinear"}, {HWD_SET_TEXTUREFILTER_TRILINEAR, "Trilinear"},
 	{HWD_SET_TEXTUREFILTER_MIXED1, "Linear_Nearest"},
 	{HWD_SET_TEXTUREFILTER_MIXED2, "Nearest_Linear"},
@@ -6664,6 +6744,21 @@ consvar_t cv_glanisotropicmode = CVAR_INIT ("gr_anisotropicmode", "1", CV_CALL, 
 consvar_t cv_glsolvetjoin = CVAR_INIT ("gr_solvetjoin", "On", 0, CV_OnOff, NULL);
 
 consvar_t cv_glbatching = CVAR_INIT ("gr_batching", "On", 0, CV_OnOff, NULL);
+
+consvar_t cv_glframebuffer = CVAR_INIT ("gr_framebuffer", "Off", CV_SAVE|CV_CALL, CV_OnOff, CV_glframebuffer_OnChange);
+consvar_t cv_glrenderbufferdepth = CVAR_INIT ("gr_renderbufferdepth", "Float", CV_SAVE|CV_CALL, glrenderbufferdepth_cons_t, CV_glrenderbufferdepth_OnChange);
+
+static void CV_glframebuffer_OnChange(void)
+{
+	if (rendermode == render_opengl)
+		HWD.pfnSetSpecialState(HWD_SET_FRAMEBUFFER, cv_glframebuffer.value);
+}
+
+static void CV_glrenderbufferdepth_OnChange(void)
+{
+	if (rendermode == render_opengl)
+		HWD.pfnSetSpecialState(HWD_SET_RENDERBUFFER_DEPTH, cv_glrenderbufferdepth.value);
+}
 
 static void CV_glfiltermode_OnChange(void)
 {
@@ -6704,6 +6799,8 @@ void HWR_AddCommands(void)
 	CV_RegisterVar(&cv_glsolvetjoin);
 
 	CV_RegisterVar(&cv_glbatching);
+	CV_RegisterVar(&cv_glframebuffer);
+	CV_RegisterVar(&cv_glrenderbufferdepth);
 
 #ifndef NEWCLIP
 	CV_RegisterVar(&cv_glclipwalls);
@@ -6727,10 +6824,15 @@ void HWR_Startup(void)
 	{
 		CONS_Printf("HWR_Startup()...\n");
 
+#if defined(__ANDROID__)
+		gl_powersoftwo = true;
+#endif
+
 		HWR_InitPolyPool();
 		HWR_AddSessionCommands();
 		HWR_InitMapTextures();
 		HWR_InitModels();
+
 #ifdef ALAM_LIGHTING
 		HWR_InitLight();
 #endif
@@ -6756,8 +6858,10 @@ void HWR_Switch(void)
 		HWR_AddSessionCommands();
 
 	// Set special states from CVARs
-	HWD.pfnSetSpecialState(HWD_SET_TEXTUREFILTERMODE, cv_glfiltermode.value);
-	HWD.pfnSetSpecialState(HWD_SET_TEXTUREANISOTROPICMODE, cv_glanisotropicmode.value);
+	CV_glframebuffer_OnChange();
+	CV_glrenderbufferdepth_OnChange();
+	CV_glfiltermode_OnChange();
+	CV_glanisotropic_OnChange();
 
 	// Load textures
 	if (!gl_maptexturesloaded)
@@ -6886,9 +6990,15 @@ void HWR_DoPostProcessor(player_t *player)
 		FOutVector      v[4];
 		FSurfaceInfo Surf;
 
-		v[0].x = v[2].y = v[3].x = v[3].y = -4.0f;
-		v[0].y = v[1].x = v[1].y = v[2].x = 4.0f;
-		v[0].z = v[1].z = v[2].z = v[3].z = 4.0f; // 4.0 because of the same reason as with the sky, just after the screen is cleared so near clipping plane is 3.99
+#ifdef HAVE_GLES2
+		float quadpos = 1.0f;
+#else
+		float quadpos = 4.0f; // 4.0 because of the same reason as with the sky, just after the screen is cleared so near clipping plane is 3.99
+#endif
+
+		v[0].x = v[2].y = v[3].x = v[3].y = -quadpos;
+		v[0].y = v[1].x = v[1].y = v[2].x = quadpos;
+		v[0].z = v[1].z = v[2].z = v[3].z = quadpos;
 
 		// This won't change if the flash palettes are changed unfortunately, but it works for its purpose
 		if (player->flashpal == PAL_NUKE)
@@ -6947,6 +7057,8 @@ void HWR_DoPostProcessor(player_t *player)
 			}
 		}
 		HWD.pfnPostImgRedraw(v);
+		if (!(paused || P_AutoPause()))
+			disStart += 1;
 
 		// Capture the screen again for screen waving on the intermission
 		if(gamestate != GS_INTERMISSION)
@@ -7019,18 +7131,24 @@ void HWR_DoWipe(UINT8 wipenum, UINT8 scrnnum)
 
 void HWR_DoTintedWipe(UINT8 wipenum, UINT8 scrnnum)
 {
+#ifdef HAVE_GLES2
+	if (!HWR_WipeCheck(wipenum, scrnnum))
+		return;
+
+	HWR_GetFadeMask(wipelumpnum);
+	HWD.pfnDoTintedWipe((wipestyleflags & WSF_FADEIN), (wipestyleflags & WSF_TOWHITE));
+#else
 	// It does the same thing
 	HWR_DoWipe(wipenum, scrnnum);
+#endif
 }
 
-void HWR_MakeScreenFinalTexture(void)
+void HWR_RecreateContext(void)
 {
-    HWD.pfnMakeScreenFinalTexture();
-}
+	HWR_ClearSkyDome();
 
-void HWR_DrawScreenFinalTexture(int width, int height)
-{
-    HWD.pfnDrawScreenFinalTexture(width, height);
+	if (vid.glstate == VID_GL_LIBRARY_LOADED)
+		HWD.pfnRecreateContext();
 }
 
 static inline UINT16 HWR_FindShaderDefs(UINT16 wadnum)
@@ -7061,6 +7179,17 @@ customshaderxlat_t shaderxlat[] =
 	{"WaterRipple", SHADER_WATER},
 	{"Fog", SHADER_FOG},
 	{"Sky", SHADER_SKY},
+#ifdef HAVE_GLES2
+	{"AlphaTest", SHADER_ALPHA_TEST},
+	{"FlatAlphaTest", SHADER_FLOOR_ALPHA_TEST},
+	{"WallTextureAlphaTest", SHADER_WALL_ALPHA_TEST},
+	{"SpriteAlphaTest", SHADER_SPRITE_ALPHA_TEST},
+	{"ModelAlphaTest", SHADER_MODEL_ALPHA_TEST},
+	{"ModelLightingAlphaTest", SHADER_MODEL_LIGHTING_ALPHA_TEST},
+	{"WaterRippleAlphaTest", SHADER_WATER_ALPHA_TEST},
+	{"FadeMask", SHADER_FADEMASK},
+	{"FadeMaskTinted", SHADER_FADEMASK_ADDITIVEANDSUBTRACTIVE},
+#endif
 	{NULL, 0},
 };
 

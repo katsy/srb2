@@ -117,6 +117,13 @@ void *Picture_PNGConvert(
 	pictureflags_t flags);
 boolean Picture_PNGDimensions(UINT8 *png, INT32 *width, INT32 *height, INT16 *topoffset, INT16 *leftoffset, size_t size);
 
+typedef struct
+{
+	const UINT8 *buffer;
+	UINT32 size;
+	UINT32 position;
+} png_io_t;
+
 #define PICTURE_PNG_USELOOKUP
 #endif
 

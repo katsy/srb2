@@ -1090,6 +1090,7 @@ static int mapthing_set(lua_State *L)
 			mt->z = (INT16)luaL_checkinteger(L, 3);
 			break;
 		case mapthing_extrainfo:
+			//mt->extrainfo = (UINT8)luaL_checkinteger(L, 3);
 		{
 			INT32 extrainfo = luaL_checkinteger(L, 3);
 			if (extrainfo & ~15)

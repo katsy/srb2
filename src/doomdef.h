@@ -130,8 +130,22 @@ extern FILE *logstream;
 extern char logfilename[1024];
 #endif
 
+#if defined(LOGMESSAGES) && (defined (__unix__) || defined(__APPLE__) || defined (UNIXCOMMON)) && !defined(__ANDROID__)
+#define LOGSYMLINK
+#endif
+
 /* A mod name to further distinguish versions. */
 #define SRB2APPLICATION "SRB2"
+
+// Defines that the game is being compiled for a mobile OS
+#if defined(__ANDROID__) || defined(__IPHONEOS__) || defined(__TVOS__)
+#define MOBILE_PLATFORM
+#endif
+
+// TV support
+#if defined(__ANDROID__) || defined(__TVOS__)
+#define TV_PLATFORM
+#endif
 
 //#define DEVELOP // Disable this for release builds to remove excessive cheat commands and enable MD5 checking and stuff, all in one go. :3
 #ifdef DEVELOP
@@ -160,6 +174,21 @@ extern char logfilename[1024];
 // Does this version require an added patch file?
 // Comment or uncomment this as necessary.
 #define USE_PATCH_DTA
+
+// Load Android assets
+#if defined(__ANDROID__)
+#define UNPACK_FILES
+#define USE_ANDROID_PK3
+#endif
+
+#ifdef USE_ANDROID_PK3
+#define ANDROID_PK3_FILENAME "android.pk3"
+#endif
+
+// Virtual keyboard
+#if defined(MOBILE_PLATFORM) && defined(TOUCHINPUTS)
+#define VIRTUAL_KEYBOARD
+#endif
 
 // Enforce a limit of loaded WAD files.
 //#define ENFORCE_WAD_LIMIT
@@ -191,8 +220,7 @@ extern char logfilename[1024];
 "You will not be able to connect to\n"\
 "the Master Server until you update to\n"\
 "the newest version of the game.\n"\
-"\n"\
-"(Press a key)\n"
+"\n%s"
 
 // The string used in the I_Error alert upon trying to host through command line parameters.
 // Generally less filled with newlines, since Windows gives you lots more room to work with.
@@ -479,6 +507,10 @@ enum {
 #define DEFAULTDIR "srb2"
 #endif
 
+#if defined(__ANDROID__)
+#define SHAREDSTORAGEFOLDER "Sonic Robo Blast 2"
+#endif
+
 #include "g_state.h"
 
 // commonly used routines - moved here for include convenience
@@ -521,8 +553,18 @@ void CONS_Debug(INT32 debugflags, const char *fmt, ...) FUNCDEBUG;
 
 // Things that used to be in dstrings.h
 #define SAVEGAMENAME "srb2sav"
-extern char savegamename[256];
-extern char liveeventbackup[256];
+#define SAVEGAMENAMELEN 256
+
+extern char savegamename[2][SAVEGAMENAMELEN];
+extern char liveeventbackup[2][SAVEGAMENAMELEN];
+
+extern char *cursavegamename;
+extern char *curliveeventbackup;
+
+#if defined(__ANDROID__)
+#define USE_GAMEDATA_PATHS
+#define USE_SAVEGAME_PATHS
+#endif
 
 // m_misc.h
 #ifdef GETTEXT
@@ -533,8 +575,20 @@ extern char liveeventbackup[256];
 #define M_GetText(x) (x)
 #endif
 void M_StartupLocale(void);
-extern void *(*M_Memcpy)(void* dest, const void* src, size_t n) FUNCNONNULL;
+
 char *va(const char *format, ...) FUNCPRINTF;
+
+#if defined(__ANDROID__)
+#include <ndk_strings.h>
+#define M_sprintf Android_sprintf
+#define M_snprintf Android_snprintf
+#define M_vsnprintf Android_vsnprintf
+#else
+#define M_sprintf sprintf
+#define M_snprintf snprintf
+#define M_vsnprintf vsnprintf
+#endif
+
 char *M_GetToken(const char *inputString);
 void M_UnGetToken(void);
 void M_TokenizerOpen(const char *inputString);
@@ -547,6 +601,13 @@ char *sizeu2(size_t num);
 char *sizeu3(size_t num);
 char *sizeu4(size_t num);
 char *sizeu5(size_t num);
+
+char *M_GetToken(const char *inputString);
+void M_UnGetToken(void);
+UINT32 M_GetTokenPos(void);
+void M_SetTokenPos(UINT32 newPos);
+
+extern void *(*M_Memcpy)(void* dest, const void* src, size_t n) FUNCNONNULL;
 
 // d_main.c
 extern int    VERSION;
@@ -672,13 +733,14 @@ extern int
 ///	\note	XMOD port.
 //#define WEIGHTEDRECYCLER
 
-///	Allow loading of savegames between different versions of the game.
-///	\note	XMOD port.
-///	    	Most modifications should probably enable this.
-//#define SAVEGAME_OTHERVERSIONS
+/// Splash screen
+#ifdef MOBILE_PLATFORM
+#define SPLASH_SCREEN
+#endif
 
-///	Shuffle's incomplete OpenGL sorting code.
-#define SHUFFLE // This has nothing to do with sorting, why was it disabled?
+/// Breadcrumb navigation
+/// https://developer.android.com/training/tv/start/controllers#back-button
+#define BREADCRUMB
 
 ///	Allow the use of the SOC RESETINFO command.
 ///	\note	Builds that are tight on memory should disable this.
@@ -702,6 +764,10 @@ extern int
 
 /// OpenGL shaders
 #define GL_SHADERS
+
+#if defined(HAVE_GLES2) && !defined(GL_SHADERS)
+#define GL_SHADERS
+#endif
 
 /// Handle touching sector specials in P_PlayerAfterThink instead of P_PlayerThink.
 /// \note   Required for proper collision with moving sloped surfaces that have sector specials on them.

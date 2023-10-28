@@ -82,6 +82,7 @@ static void PointLimit_OnChange(void);
 static void TimeLimit_OnChange(void);
 static void NumLaps_OnChange(void);
 static void BaseNumLaps_OnChange(void);
+
 static void Mute_OnChange(void);
 
 static void Hidetime_OnChange(void);
@@ -250,8 +251,20 @@ INT32 cv_debug;
 consvar_t cv_usemouse = CVAR_INIT ("use_mouse", "On", CV_SAVE|CV_CALL,usemouse_cons_t, I_StartupMouse);
 consvar_t cv_usemouse2 = CVAR_INIT ("use_mouse2", "Off", CV_SAVE|CV_CALL,usemouse_cons_t, I_StartupMouse2);
 
-consvar_t cv_usejoystick = CVAR_INIT ("use_gamepad", "1", CV_SAVE|CV_CALL, usejoystick_cons_t, I_InitJoystick);
-consvar_t cv_usejoystick2 = CVAR_INIT ("use_gamepad2", "2", CV_SAVE|CV_CALL, usejoystick_cons_t, I_InitJoystick2);
+consvar_t cv_usejoystick = CVAR_INIT ("use_gamepad", "1", CV_SAVE|CV_CALL|CV_NOINIT, usejoystick_cons_t, I_ChangeJoystick);
+consvar_t cv_usejoystick2 = CVAR_INIT ("use_gamepad2", "2", CV_SAVE|CV_CALL|CV_NOINIT, usejoystick_cons_t, I_ChangeJoystick2);
+
+#ifdef ACCELEROMETER
+consvar_t cv_useaccelerometer = CVAR_INIT ("use_accelerometer", "Off", CV_SAVE|CV_CALL, CV_OnOff, G_ResetAccelerometer);
+consvar_t cv_acceldeadzone = CVAR_INIT ("accelerometer_deadzone", "0.75", CV_FLOAT | CV_SAVE, zerotoone_cons_t, NULL);
+
+static CV_PossibleValue_t accelscale_cons_t[] = {{1, "MIN"}, {16, "MAX"}, {0, NULL}};
+consvar_t cv_accelscale = CVAR_INIT ("accelerometer_scale", "4", CV_SAVE, accelscale_cons_t, NULL);
+
+static CV_PossibleValue_t acceltilt_cons_t[] = {{FRACUNIT, "MIN"}, {ACCELEROMETER_MAX_TILT_OFFSET, "MAX"}, {0, NULL}};
+consvar_t cv_acceltilt = CVAR_INIT ("accelerometer_tilt", "45", CV_FLOAT | CV_SAVE, acceltilt_cons_t, NULL);
+#endif
+
 #if (defined (LJOYSTICK) || defined (HAVE_SDL))
 #ifdef LJOYSTICK
 consvar_t cv_joyport = CVAR_INIT ("padport", "/dev/js0", CV_SAVE, joyport_cons_t, NULL);
@@ -316,6 +329,9 @@ consvar_t cv_timetic = CVAR_INIT ("timerres", "Classic", CV_SAVE, timetic_cons_t
 static CV_PossibleValue_t powerupdisplay_cons_t[] = {{0, "Never"}, {1, "First-person only"}, {2, "Always"}, {0, NULL}};
 consvar_t cv_powerupdisplay = CVAR_INIT ("powerupdisplay", "First-person only", CV_SAVE, powerupdisplay_cons_t, NULL);
 
+static CV_PossibleValue_t liveshudpos_cons_t[] = {{0, "Bottom left"}, {1, "Top right"}, {2, "Automatic"}, {0, NULL}};
+consvar_t cv_liveshudpos = CVAR_INIT ("liveshudpos", "Automatic", CV_SAVE, liveshudpos_cons_t, NULL);
+
 static CV_PossibleValue_t pointlimit_cons_t[] = {{1, "MIN"}, {MAXSCORE, "MAX"}, {0, "None"}, {0, NULL}};
 consvar_t cv_pointlimit = CVAR_INIT ("pointlimit", "None", CV_SAVE|CV_NETVAR|CV_CALL|CV_NOINIT|CV_ALLOWLUA, pointlimit_cons_t, PointLimit_OnChange);
 static CV_PossibleValue_t timelimit_cons_t[] = {{1, "MIN"}, {30, "MAX"}, {0, "None"}, {0, NULL}};
@@ -374,6 +390,8 @@ consvar_t cv_runscripts = CVAR_INIT ("runscripts", "Yes", CV_ALLOWLUA, CV_YesNo,
 
 consvar_t cv_pause = CVAR_INIT ("pausepermission", "Server", CV_SAVE|CV_NETVAR|CV_ALLOWLUA, pause_cons_t, NULL);
 consvar_t cv_mute = CVAR_INIT ("mute", "Off", CV_NETVAR|CV_CALL|CV_ALLOWLUA, CV_OnOff, Mute_OnChange);
+
+consvar_t cv_thinkless = CVAR_INIT("thinkless", "Off", CV_SAVE, CV_OnOff, NULL);
 
 consvar_t cv_sleep = CVAR_INIT ("cpusleep", "1", CV_SAVE, sleeping_cons_t, NULL);
 
@@ -611,6 +629,11 @@ void D_RegisterServerCommands(void)
 	CV_RegisterVar(&cv_pingtimeout);
 	CV_RegisterVar(&cv_showping);
 
+#ifdef MOBILE_PLATFORM
+	cv_thinkless.defaultvalue = "On";
+#endif
+	CV_RegisterVar(&cv_thinkless);
+
 	CV_RegisterVar(&cv_allowseenames);
 
 	// Other filesrch.c consvars are defined in D_RegisterClientCommands
@@ -721,6 +744,7 @@ void D_RegisterClientCommands(void)
 	CV_RegisterVar(&cv_powerupdisplay);
 	CV_RegisterVar(&cv_itemfinder);
 	CV_RegisterVar(&cv_showinputjoy);
+	CV_RegisterVar(&cv_liveshudpos);
 
 	// time attack ghost options are also saved to config
 	CV_RegisterVar(&cv_ghost_bestscore);
@@ -815,6 +839,11 @@ void D_RegisterClientCommands(void)
 #endif
 	CV_RegisterVar(&cv_controlperkey);
 
+#ifdef MOBILE_PLATFORM
+	// Disable the mouse
+	cv_usemouse.defaultvalue = "Off";
+#endif
+
 	CV_RegisterVar(&cv_usemouse);
 	CV_RegisterVar(&cv_usemouse2);
 	CV_RegisterVar(&cv_invertmouse);
@@ -828,12 +857,20 @@ void D_RegisterClientCommands(void)
 
 	CV_RegisterVar(&cv_usejoystick);
 	CV_RegisterVar(&cv_usejoystick2);
+
 #ifdef LJOYSTICK
 	CV_RegisterVar(&cv_joyport);
 	CV_RegisterVar(&cv_joyport2);
 #endif
 	CV_RegisterVar(&cv_joyscale);
 	CV_RegisterVar(&cv_joyscale2);
+
+#ifdef ACCELEROMETER
+	CV_RegisterVar(&cv_useaccelerometer);
+	CV_RegisterVar(&cv_accelscale);
+	CV_RegisterVar(&cv_acceltilt);
+	CV_RegisterVar(&cv_acceldeadzone);
+#endif
 
 	// Analog Control
 	CV_RegisterVar(&cv_analog[0]);
@@ -882,8 +919,16 @@ void D_RegisterClientCommands(void)
 	CV_RegisterVar(&cv_scr_depth);
 	CV_RegisterVar(&cv_scr_width);
 	CV_RegisterVar(&cv_scr_height);
-	CV_RegisterVar(&cv_scr_width_w);
-	CV_RegisterVar(&cv_scr_height_w);
+
+#ifdef NATIVESCREENRES
+	SCR_SetMaxNativeResDivider(SCR_GetMaxNativeResDivider(0, 0));
+
+	CV_RegisterVar(&cv_nativeres);
+	CV_RegisterVar(&cv_nativeresdiv);
+	CV_RegisterVar(&cv_nativeresauto);
+	CV_RegisterVar(&cv_nativeresfov);
+	CV_RegisterVar(&cv_nativerescompare);
+#endif
 
 	CV_RegisterVar(&cv_soundtest);
 
@@ -930,6 +975,9 @@ void D_RegisterClientCommands(void)
 #endif
 #ifdef LUA_ALLOW_BYTECODE
 	COM_AddCommand("dumplua", Command_Dumplua_f, COM_LUA);
+#endif
+#ifdef UNPACK_FILES_DEBUG
+	COM_AddCommand("unpacktest", Command_Unpacktest_f);
 #endif
 }
 
@@ -3302,12 +3350,12 @@ static void Got_RunSOCcmd(UINT8 **cp, INT32 playernum)
 			if (ncs == FS_NOTFOUND)
 			{
 				CONS_Printf(M_GetText("The server tried to add %s,\nbut you don't have this file.\nYou need to find it in order\nto play on this server.\n"), filename);
-				M_StartMessage(va("The server added a file\n(%s)\nthat you do not have.\n\nPress ESC\n",filename), NULL, MM_NOTHING);
+				M_StartMessage(va("The server added a file\n(%s)\nthat you do not have.\n\n%s", filename, M_GetUserActionString(PRESS_ESC_MESSAGE)), NULL, MM_NOTHING);
 			}
 			else
 			{
 				CONS_Printf(M_GetText("Unknown error finding soc file (%s) the server added.\n"), filename);
-				M_StartMessage(va("Unknown error trying to load a file\nthat the server added\n(%s).\n\nPress ESC\n",filename), NULL, MM_NOTHING);
+				M_StartMessage(va("Unknown error trying to load a file\nthat the server added\n(%s).\n\n%s", filename, M_GetUserActionString(PRESS_ESC_MESSAGE)), NULL, MM_NOTHING);
 			}
 			return;
 		}
@@ -3424,7 +3472,7 @@ static void Command_Addfile(void)
 				return;
 			}
 
-		musiconly = W_VerifyNMUSlumps(fn, false);
+		musiconly = W_VerifyNMUSlumps(fn, FILEHANDLE_STANDARD, false);
 
 		if (musiconly == -1)
 		{
@@ -3476,7 +3524,7 @@ static void Command_Addfile(void)
 #else
 			FILE *fhandle;
 
-			if ((fhandle = W_OpenWadFile(&fn, true)) != NULL)
+			if ((fhandle = W_OpenWadFile(&fn, FILEHANDLE_STANDARD, true)) != NULL)
 			{
 				tic_t t = I_GetTime();
 				CONS_Debug(DBG_SETUP, "Making MD5 for %s\n",fn);
@@ -3776,22 +3824,22 @@ static void Got_Addfilecmd(UINT8 **cp, INT32 playernum)
 		if (ncs == FS_FOUND)
 		{
 			CONS_Printf(M_GetText("The server tried to add %s,\nbut you have too many files added.\nRestart the game to clear loaded files\nand play on this server."), filename);
-			M_StartMessage(va("The server added a file \n(%s)\nbut you have too many files added.\nRestart the game to clear loaded files.\n\nPress ESC\n",filename), NULL, MM_NOTHING);
+			M_StartMessage(va("The server added a file \n(%s)\nbut you have too many files added.\nRestart the game to clear loaded files.\n\n%s", filename, M_GetUserActionString(PRESS_ESC_MESSAGE)), NULL, MM_NOTHING);
 		}
 		else if (ncs == FS_NOTFOUND)
 		{
 			CONS_Printf(M_GetText("The server tried to add %s,\nbut you don't have this file.\nYou need to find it in order\nto play on this server."), filename);
-			M_StartMessage(va("The server added a file \n(%s)\nthat you do not have.\n\nPress ESC\n",filename), NULL, MM_NOTHING);
+			M_StartMessage(va("The server added a file \n(%s)\nthat you do not have.\n\n%s", filename, M_GetUserActionString(PRESS_ESC_MESSAGE)), NULL, MM_NOTHING);
 		}
 		else if (ncs == FS_MD5SUMBAD)
 		{
 			CONS_Printf(M_GetText("Checksum mismatch while loading %s.\nMake sure you have the copy of\nthis file that the server has.\n"), filename);
-			M_StartMessage(va("Checksum mismatch while loading \n%s.\nThe server seems to have a\ndifferent version of this file.\n\nPress ESC\n",filename), NULL, MM_NOTHING);
+			M_StartMessage(va("Checksum mismatch while loading \n%s.\nThe server seems to have a\ndifferent version of this file.\n\n%s", filename, M_GetUserActionString(PRESS_ESC_MESSAGE)), NULL, MM_NOTHING);
 		}
 		else
 		{
 			CONS_Printf(M_GetText("Unknown error finding wad file (%s) the server added.\n"), filename);
-			M_StartMessage(va("Unknown error trying to load a file\nthat the server added \n(%s).\n\nPress ESC\n",filename), NULL, MM_NOTHING);
+			M_StartMessage(va("Unknown error trying to load a file\nthat the server added \n(%s).\n\n%s", filename, M_GetUserActionString(PRESS_ESC_MESSAGE)), NULL, MM_NOTHING);
 		}
 		return;
 	}
@@ -3823,18 +3871,18 @@ static void Got_Addfoldercmd(UINT8 **cp, INT32 playernum)
 		Command_ExitGame_f();
 		if (ncs == FS_FOUND)
 		{
-			CONS_Printf(M_GetText("The server tried to add %s,\nbut you have too many files added.\nRestart the game to clear loaded files\nand play on this server."), path);
-			M_StartMessage(va("The server added a folder \n(%s)\nbut you have too many files added.\nRestart the game to clear loaded files.\n\nPress ESC\n",path), NULL, MM_NOTHING);
+			CONS_Printf(M_GetText("The server tried to add %s,\nbut you have too many files added.\nRestart the game to clear loaded files\nand play on this server.\n"), path);
+			M_StartMessage(va("The server added a folder \n(%s)\nbut you have too many files added.\nRestart the game to clear loaded files.\n\n%s",path,M_GetUserActionString(PRESS_ESC_MESSAGE)), NULL, MM_NOTHING);
 		}
 		else if (ncs == FS_NOTFOUND)
 		{
-			CONS_Printf(M_GetText("The server tried to add %s,\nbut you don't have this file.\nYou need to find it in order\nto play on this server."), path);
-			M_StartMessage(va("The server added a folder \n(%s)\nthat you do not have.\n\nPress ESC\n",path), NULL, MM_NOTHING);
+			CONS_Printf(M_GetText("The server tried to add %s,\nbut you don't have this file.\nYou need to find it in order\nto play on this server.\n"), path);
+			M_StartMessage(va("The server added a folder \n(%s)\nthat you do not have.\n\n%s",path,M_GetUserActionString(PRESS_ESC_MESSAGE)), NULL, MM_NOTHING);
 		}
 		else
 		{
 			CONS_Printf(M_GetText("Unknown error finding folder (%s) the server added.\n"), path);
-			M_StartMessage(va("Unknown error trying to load a folder\nthat the server added \n(%s).\n\nPress ESC\n",path), NULL, MM_NOTHING);
+			M_StartMessage(va("Unknown error trying to load a folder\nthat the server added \n(%s).\n\n%s",path,M_GetUserActionString(PRESS_ESC_MESSAGE)), NULL, MM_NOTHING);
 		}
 		return;
 	}
@@ -3894,6 +3942,14 @@ static void Command_Version_f(void)
 	// Would be nice to use SDL_GetPlatform for this
 #if defined (_WIN32) || defined (_WIN64)
 	CONS_Printf("Windows ");
+#elif defined(__ANDROID__)
+	CONS_Printf("Android ");
+	if (I_OnAndroidTV())
+		CONS_Printf("TV ");
+#elif defined(__IPHONEOS__)
+	CONS_Printf("iOS ");
+#elif defined(__TVOS__)
+	CONS_Printf("tvOS ");
 #elif defined(__linux__)
 	CONS_Printf("Linux ");
 #elif defined(MACOSX)
@@ -3911,6 +3967,11 @@ static void Command_Version_f(void)
 		CONS_Printf("64-bit ");
 	else // 16-bit? 128-bit?
 		CONS_Printf("Bits Unknown ");
+
+	// No ASM?
+#if defined(NOASM) && !defined(__ANDROID__)
+	CONS_Printf("\x85" "NOASM " "\x80");
+#endif
 
 	// Debug build
 #ifdef _DEBUG
@@ -3964,6 +4025,7 @@ static void Command_Playintro_f(void)
 	if (dirmenu)
 		closefilemenu(true);
 
+	M_ClearMenus(false);
 	F_StartIntro();
 }
 
@@ -4957,6 +5019,7 @@ static void Color2_OnChange(void)
 /** Displays the result of the chat being muted or unmuted.
   * The server or remote admin should already know and be able to talk
   * regardless, so this is only displayed to clients.
+  * Updates touch control layouts.
   *
   * \sa cv_mute
   * \author Graue <graue@oceanbase.org>

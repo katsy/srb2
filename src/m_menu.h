@@ -92,10 +92,14 @@ typedef enum
 	MN_OP_P2JOYSTICK,
 	MN_OP_P2CAMERA,
 
+	MN_OP_TOUCHSCREEN,
+	MN_OP_TOUCHCONTROLS,
+
 	MN_OP_PLAYSTYLE,
 
 	MN_OP_VIDEO,
 	MN_OP_VIDEOMODE,
+	MN_OP_RESOLUTIONDEF,
 	MN_OP_COLOR,
 	MN_OP_OPENGL,
 	MN_OP_OPENGL_LIGHTING,
@@ -140,6 +144,20 @@ typedef enum
 #define MTREE2(a,b) (a | (b<<MENUBITS))
 #define MTREE3(a,b,c) MTREE2(a, MTREE2(b,c))
 #define MTREE4(a,b,c,d) MTREE2(a, MTREE3(b,c,d))
+
+typedef enum
+{
+	MENUSTYLE_DEFAULT = 0,
+	MENUSTYLE_SCROLL,
+	MENUSTYLE_CENTER,
+	MENUSTYLE_PLATTER,
+	MENUSTYLE_JOYSTICKS,
+	MENUSTYLE_SERVERLIST,
+	MENUSTYLE_PLAYSTYLE,
+	MENUSTYLE_VIDEOMODES,
+	MENUSTYLE_ADDONS,
+	MENUSTYLE_SOUNDTEST
+} menustyle_t;
 
 typedef struct
 {
@@ -227,6 +245,7 @@ typedef enum
 	                // and routine is void routine(event_t *) (ex: set control)
 } menumessagetype_t;
 void M_StartMessage(const char *string, void *routine, menumessagetype_t itemtype);
+void M_StartYNQuestion(const char *message, void *routine);
 
 typedef enum
 {
@@ -239,9 +258,6 @@ typedef enum
 M_waiting_mode_t;
 
 extern M_waiting_mode_t m_waiting_mode;
-
-// Called by linux_x/i_video_xshm.c
-void M_QuitResponse(INT32 ch);
 
 // Determines whether to show a level in the list (platter version does not need to be exposed)
 boolean M_CanShowLevelInList(INT32 mapnum, INT32 gt);
@@ -302,6 +318,37 @@ boolean M_CanShowLevelInList(INT32 mapnum, INT32 gt);
 #define IT_GRAYEDOUT2  (IT_SPACE  +IT_TRANSTEXT2)
 #define IT_HEADER      (IT_SPACE  +IT_HEADERTEXT)
 #define IT_SECRET      (IT_SPACE  +IT_QUESTIONMARKS)
+#define IT_GOBACK      (IT_TRANSTEXT2)
+
+// Confirm (press 'Y') / Return (press 'N') / Press a key / ESC messages
+const char *M_GetUserActionString(INT32 type);
+void M_ShowAnyKeyMessage(const char *message);
+void M_ShowAnyKeyMessageAlt(const char *message);
+void M_ShowESCMessage(const char *message);
+
+enum
+{
+	PRESS_Y_MESSAGE = 1,
+	PRESS_Y_MESSAGE_L,
+	PRESS_N_MESSAGE,
+	PRESS_N_MESSAGE_L,
+	CONFIRM_MESSAGE,
+	PRESS_ESC_MESSAGE,
+	PRESS_A_KEY_MESSAGE,
+	PRESS_A_KEY_MESSAGE_ALT,
+	NUMUSERACTIONS
+};
+
+#define UserAction_IsAnyKey(key) ((key) == PRESS_A_KEY_MESSAGE || (key) == PRESS_A_KEY_MESSAGE_ALT)
+
+typedef struct
+{
+	INT32 action;
+	const char *key_string;
+	const char *joy_string;
+	const char *touch_string;
+	const char *mouse_string;
+} useractionstring_t;
 
 #define MAXSTRINGLENGTH 32
 
@@ -336,6 +383,7 @@ extern UINT32     roomIds[NUM_LIST_ROOMS];
 typedef struct menu_s
 {
 	UINT32         menuid;             // ID to encode menu type and hierarchy
+	menustyle_t    menustyle;          // menu style
 	const char    *menutitlepic;
 	INT16          numitems;           // # of menu items
 	struct menu_s *prevMenu;           // previous menu
@@ -344,10 +392,46 @@ typedef struct menu_s
 	INT16          x, y;               // x, y of menu
 	INT16          lastOn;             // last item user was on in menu
 	boolean      (*quitroutine)(void); // called before quit a menu return true if we can
+	void         (*routine)(void);     // runs every frame
 } menu_t;
 
 void M_SetupNextMenu(menu_t *menudef);
+void M_SetupPrevMenu(menu_t *menudef);
 void M_ClearMenus(boolean callexitmenufunc);
+
+// Menu navigation
+void M_NavigationAdvance(menu_t *menudef);
+void M_NavigationReturn(menu_t *menudef);
+
+#define MOBILEMENU_CONST_OPTHORZSHIFT 12
+#define MOBILEMENU_CONST_OPTANIMSPEED 2
+
+#ifdef TOUCHINPUTS
+void M_TSNav_Update(void);
+
+boolean M_TSNav_CanShowBack(void);
+boolean M_TSNav_CanShowConfirm(void);
+boolean M_TSNav_CanShowConsole(void);
+
+INT32 M_TSNav_DeleteButtonAction(void);
+
+boolean M_TSNav_OnMainMenu(void);
+boolean M_TSNav_OnMessage(void);
+
+INT32 M_TSNav_BackCorner(void);
+
+void M_TSNav_SetBackVisible(boolean set);
+void M_TSNav_SetConfirmVisible(boolean set);
+void M_TSNav_SetConsoleVisible(boolean set);
+void M_TSNav_SetDeleteVisible(boolean set);
+
+void M_TSNav_ShowAll(void);
+void M_TSNav_HideAll(void);
+void M_TSNav_ShowDefaultScheme(void);
+
+boolean M_IsOnTouchOptions(void);
+boolean M_IsCustomizingTouchControls(void);
+#endif
 
 // Maybe this goes here????? Who knows.
 boolean M_MouseNeeded(void);
@@ -413,6 +497,7 @@ extern gtdesc_t gametypedesc[NUMGAMETYPES];
 // mode descriptions for video mode menu
 typedef struct
 {
+	INT32 width, height; // width and height
 	INT32 modenum; // video mode number in the vidmodes list
 	const char *desc;  // XXXxYYY
 	UINT8 goodratio; // aspect correct if 1
@@ -490,7 +575,7 @@ void M_FreePlayerSetupColors(void);
 // These defines make it a little easier to make menus
 #define DEFAULTMENUSTYLE(id, header, source, prev, x, y)\
 {\
-	id,\
+	id,0,\
 	header,\
 	sizeof(source)/sizeof(menuitem_t),\
 	prev,\
@@ -498,12 +583,12 @@ void M_FreePlayerSetupColors(void);
 	M_DrawGenericMenu,\
 	x, y,\
 	0,\
-	NULL\
+	NULL,NULL\
 }
 
 #define DEFAULTSCROLLMENUSTYLE(id, header, source, prev, x, y)\
 {\
-	id,\
+	id,MENUSTYLE_SCROLL,\
 	header,\
 	sizeof(source)/sizeof(menuitem_t),\
 	prev,\
@@ -511,12 +596,12 @@ void M_FreePlayerSetupColors(void);
 	M_DrawGenericScrollMenu,\
 	x, y,\
 	0,\
-	NULL\
+	NULL,NULL\
 }
 
 #define PAUSEMENUSTYLE(source, x, y)\
 {\
-	MN_SPECIAL,\
+	MN_SPECIAL,0,\
 	NULL,\
 	sizeof(source)/sizeof(menuitem_t),\
 	NULL,\
@@ -524,12 +609,12 @@ void M_FreePlayerSetupColors(void);
 	M_DrawPauseMenu,\
 	x, y,\
 	0,\
-	NULL\
+	NULL,NULL\
 }
 
 #define CENTERMENUSTYLE(id, header, source, prev, y)\
 {\
-	id,\
+	id,MENUSTYLE_CENTER,\
 	header,\
 	sizeof(source)/sizeof(menuitem_t),\
 	prev,\
@@ -537,12 +622,12 @@ void M_FreePlayerSetupColors(void);
 	M_DrawCenteredMenu,\
 	BASEVIDWIDTH/2, y,\
 	0,\
-	NULL\
+	NULL,NULL\
 }
 
 #define MAPPLATTERMENUSTYLE(id, header, source)\
 {\
-	id,\
+	id,MENUSTYLE_PLATTER,\
 	header,\
 	sizeof (source)/sizeof (menuitem_t),\
 	&MainDef,\
@@ -550,12 +635,12 @@ void M_FreePlayerSetupColors(void);
 	M_DrawLevelPlatterMenu,\
 	0,0,\
 	0,\
-	NULL\
+	NULL,M_LevelPlatterTicker\
 }
 
 #define CONTROLMENUSTYLE(id, source, prev)\
 {\
-	id,\
+	id,0,\
 	"M_CONTRO",\
 	sizeof (source)/sizeof (menuitem_t),\
 	prev,\
@@ -563,12 +648,12 @@ void M_FreePlayerSetupColors(void);
 	M_DrawControl,\
 	24, 40,\
 	0,\
-	NULL\
+	NULL,NULL\
 }
 
 #define IMAGEDEF(source)\
 {\
-	MN_SPECIAL,\
+	MN_SPECIAL,0,\
 	NULL,\
 	sizeof (source)/sizeof (menuitem_t),\
 	NULL,\
@@ -576,7 +661,7 @@ void M_FreePlayerSetupColors(void);
 	M_DrawImageDef,\
 	0, 0,\
 	0,\
-	NULL\
+	NULL,NULL\
 }
 
 #endif //__X_MENU__

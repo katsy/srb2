@@ -151,7 +151,7 @@ consvar_t cv_ffloorclip = CVAR_INIT ("r_ffloorclip", "On", CV_SAVE, CV_OnOff, NU
 consvar_t cv_spriteclip = CVAR_INIT ("r_spriteclip", "On", CV_SAVE, CV_OnOff, NULL);
 consvar_t cv_allowmlook = CVAR_INIT ("allowmlook", "Yes", CV_NETVAR|CV_ALLOWLUA, CV_YesNo, NULL);
 consvar_t cv_showhud = CVAR_INIT ("showhud", "Yes", CV_CALL|CV_ALLOWLUA,  CV_YesNo, R_SetViewSize);
-consvar_t cv_translucenthud = CVAR_INIT ("translucenthud", "10", CV_SAVE, translucenthud_cons_t, NULL);
+consvar_t cv_translucenthud = CVAR_INIT ("translucenthud", "10", CV_SAVE|CV_SLIDER_SAFE, translucenthud_cons_t, NULL);
 
 consvar_t cv_translucency = CVAR_INIT ("translucency", "On", CV_SAVE, CV_OnOff, NULL);
 consvar_t cv_drawdist = CVAR_INIT ("drawdist", "Infinite", CV_SAVE, drawdist_cons_t, NULL);
@@ -617,6 +617,21 @@ static struct {
 	false
 };
 
+angle_t R_GetLocalViewRollAngle(player_t *player)
+{
+	angle_t ang = player->viewrollangle;
+
+#if defined(ACCELEROMETER) && defined(ACCELEROMETER_TILT_VIEW)
+	if (cv_useaccelerometer.value && gamestate == GS_LEVEL && player == &players[consoleplayer] && !splitscreen)
+	{
+		fixed_t accelangle = FixedDiv(acceltilt * FRACUNIT, 4096<<FRACBITS);
+		ang += FixedAngle(FixedMul(accelangle, 90<<FRACBITS));
+	}
+#endif
+
+	return ang;
+}
+
 void R_CheckViewMorph(void)
 {
 	float zoomfactor, rollcos, rollsin;
@@ -628,7 +643,7 @@ void R_CheckViewMorph(void)
 	float fisheyemap[MAXVIDWIDTH/2 + 1];
 #endif
 
-	angle_t rollangle = players[displayplayer].viewrollangle;
+	angle_t rollangle = R_GetLocalViewRollAngle(&players[displayplayer]);
 #ifdef WOUGHMP_WOUGHMP
 	fixed_t fisheye = cv_cam2_turnmultiplier.value; // temporary test value
 #endif
@@ -932,6 +947,15 @@ void R_ExecuteSetViewSize(void)
 	fovtan = FixedMul(FINETANGENT(fov >> ANGLETOFINESHIFT), viewmorph.zoomneeded);
 	if (splitscreen == 1) // Splitscreen FOV should be adjusted to maintain expected vertical view
 		fovtan = 17*fovtan/10;
+
+#ifdef NATIVESCREENRES
+	if (cv_nativeres.value && cv_nativeresfov.value)
+	{
+		fixed_t resmul = FixedDiv(vid.width * FRACUNIT, vid.height * FRACUNIT);
+		if (resmul > FRACUNIT)
+			fovtan = FixedMul(fovtan, (7*resmul/10));
+	}
+#endif
 
 	projection = projectiony = FixedDiv(centerxfrac, fovtan);
 
@@ -1475,11 +1499,13 @@ void R_RenderPlayerView(player_t *player)
 	R_ClearSprites();
 	Portal_InitList();
 
-	// check for new console commands.
+	// Check for new console commands.
 	NetUpdate();
 
-	// The head node is the last node output.
+	if (I_AppOnBackground())
+		return;
 
+	// The head node is the last node output.
 	Mask_Pre(&masks[nummasks - 1]);
 	curdrawsegs = ds_p;
 	ps_numbspcalls.value.i = ps_numpolyobjects.value.i = ps_numdrawnodes.value.i = 0;
@@ -1571,10 +1597,16 @@ void R_RegisterEngineStuff(void)
 	if (dedicated)
 		return;
 
-	CV_RegisterVar(&cv_translucency);
+#ifdef MOBILE_PLATFORM // Override CVARs
+	// Change the default draw distance
+	cv_drawdist.defaultvalue = "4096";
+#endif
+
 	CV_RegisterVar(&cv_drawdist);
 	CV_RegisterVar(&cv_drawdist_nights);
 	CV_RegisterVar(&cv_drawdist_precip);
+
+	CV_RegisterVar(&cv_translucency);
 	CV_RegisterVar(&cv_fov);
 
 	CV_RegisterVar(&cv_chasecam);

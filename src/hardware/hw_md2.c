@@ -1280,6 +1280,7 @@ boolean HWR_DrawModel(gl_vissprite_t *spr)
 	UINT8 spr2 = 0;
 	FTransform p;
 	FSurfaceInfo Surf;
+	FBITFIELD flags;
 
 	if (!cv_glmodels.value)
 		return false;
@@ -1439,7 +1440,6 @@ boolean HWR_DrawModel(gl_vissprite_t *spr)
 				// note down the max_s and max_t that end up in the VBO
 				md2->model->vbo_max_s = md2->model->max_s;
 				md2->model->vbo_max_t = md2->model->max_t;
-				HWD.pfnCreateModelVBOs(md2->model);
 			}
 			else
 			{
@@ -1448,7 +1448,13 @@ boolean HWR_DrawModel(gl_vissprite_t *spr)
 				return false;
 			}
 		}
+		if (!md2->model->hasVBOs)
+		{
+			HWD.pfnCreateModelVBOs(md2->model);
+			md2->model->hasVBOs = true;
+		}
 
+		//finalscale = md2->scale;
 		//HWD.pfnSetBlend(blend); // This seems to actually break translucency?
 		//Hurdler: arf, I don't like that implementation at all... too much crappy
 
@@ -1659,6 +1665,8 @@ boolean HWR_DrawModel(gl_vissprite_t *spr)
 			HWD.pfnDrawModel(md2->model, frame, durs, tics, nextFrame, &p, md2->scale * xs, md2->scale * ys, flip, hflip, &Surf);
 		}
 	}
+
+	HWD.pfnSetShader(SHADER_DEFAULT);
 
 	return true;
 }

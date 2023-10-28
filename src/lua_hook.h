@@ -16,6 +16,7 @@
 #include "d_event.h"
 #include "lua_hudlib_drawlist.h"
 
+
 /*
 Do you know what an 'X Macro' is? Such a macro is called over each element of
 a list and expands the input. I use it for the hook lists because both an enum
@@ -140,7 +141,7 @@ int  LUA_HookHurtMsg(player_t *, mobj_t *inflictor, mobj_t *source, UINT8 damage
 int  LUA_HookMapThingSpawn(mobj_t *, mapthing_t *);
 int  LUA_HookFollowMobj(player_t *, mobj_t *);
 int  LUA_HookPlayerCanDamage(player_t *, mobj_t *);
-void LUA_HookPlayerQuit(player_t *, kickreason_t);
+void LUA_HookPlayerQuit(player_t *plr, kickreason_t reason);
 int  LUA_HookTeamSwitch(player_t *, int newteam, boolean fromspectators, boolean tryingautobalance, boolean tryingscramble);
 int  LUA_HookViewpointSwitch(player_t *player, player_t *newdisplayplayer, boolean forced);
 int  LUA_HookSeenPlayer(player_t *player, player_t *seenfriend);
