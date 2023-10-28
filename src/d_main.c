@@ -1302,7 +1302,7 @@ static void IdentifyVersion(void)
 #endif
 
 	// Add rphys patch file
-	D_AddFile(&startupwadfiles, va(pandf,srb2waddir, "rphys.pk3"));
+	D_AddFile(&startupwadfiles, va(pandf,srb2waddir, "rphys.pk3"), NULL);
 
 #if !defined (HAVE_SDL) || defined (HAVE_MIXER)
 	{
